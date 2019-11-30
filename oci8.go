@@ -1419,21 +1419,16 @@ func (s *OCI8Stmt) query(ctx context.Context, args []namedValue) (driver.Rows, e
 // OCI_ATTR_ROWID must be get in handle -> alloc
 // can be coverted to char, but not to int64
 
-func (s *OCI8Stmt) lastInsertId() (int64, error) {
+func (s *OCI8Stmt) lastInsertId() (string, error) {
 	retRowid := C.WrapOCIAttrRowId(s.c.env, s.s, C.OCI_HTYPE_STMT, C.OCI_ATTR_ROWID, (*C.OCIError)(s.c.err))
 	if retRowid.rv == C.OCI_SUCCESS {
 		bs := make([]byte, 18)
 		for i, b := range retRowid.rowid[:18] {
 			bs[i] = byte(b)
 		}
-		rowid := string(bs)
-		return int64(uintptr(unsafe.Pointer(&rowid))), nil
+		 return string(bs), nil
 	}
-	return int64(0), nil
-}
-
-func GetLastInsertId(id int64) string {
-	return *(*string)(unsafe.Pointer(uintptr(id)))
+	return "", ociGetError(retRowid.rv, s.c.err)
 }
 
 func (s *OCI8Stmt) rowsAffected() (int64, error) {
@@ -1447,13 +1442,17 @@ func (s *OCI8Stmt) rowsAffected() (int64, error) {
 type OCI8Result struct {
 	n     int64
 	errn  error
-	id    int64
 	errid error
+	rowid string
 	s     *OCI8Stmt
 }
 
 func (r *OCI8Result) LastInsertId() (int64, error) {
-	return r.id, r.errid
+	return int64(uintptr(unsafe.Pointer(&r.rowid))), r.errid
+}
+
+func GetLastInsertId(id int64) string {
+       return *(*string)(unsafe.Pointer(uintptr(id)))
 }
 
 func (r *OCI8Result) RowsAffected() (int64, error) {
@@ -1513,13 +1512,15 @@ func (s *OCI8Stmt) exec(ctx context.Context, args []namedValue) (r driver.Result
 	}
 
 	n, en := s.rowsAffected()
-	var id int64
 	var ei error
+	var rowid string
+
 	if n > 0 {
-		id, ei = s.lastInsertId()
+		rowid, ei = s.lastInsertId()
 	}
+
 	outputBoundParameters(fbp)
-	return &OCI8Result{s: s, n: n, errn: en, id: id, errid: ei}, nil
+	return &OCI8Result{s: s, n: n, errn: en, errid: ei, rowid: rowid}, nil
 }
 
 type oci8col struct {
